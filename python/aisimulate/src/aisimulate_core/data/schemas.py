@@ -32,7 +32,7 @@ from aisimulate_core.data.e2e import (
 )
 from aisimulate_core.data.eval import EvalRecord
 from aisimulate_core.data.gpu_time import GpuTime
-from aisimulate_core.data.op_publish import (
+from aisimulate_core.data.op_schema import (
     OpDeclaredReuseRow,
     OpLatencyRow,
     OpQueryVersionsRow,

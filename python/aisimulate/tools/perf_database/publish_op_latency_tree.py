@@ -9,7 +9,8 @@ Local only: never uploads. Build then audit::
     python tools/perf_database/publish_op_latency_tree.py build --out /tmp/op-latency-publish
     python tools/perf_database/publish_op_latency_tree.py audit --out /tmp/op-latency-publish --json audit.json
 
-See :mod:`aisimulate_core.data.op_publish` for the layout and hash policy.
+The converter is :mod:`op_latency_publish` (next to this script); see its docstring for the layout and hash
+policy. The permanent schema, path and hash contract is :mod:`aisimulate_core.data.op_schema`.
 """
 
 import argparse
@@ -17,8 +18,10 @@ import json
 import sys
 from pathlib import Path
 
+from op_latency_publish import audit_tree, build_publish_tree
+
 import aisimulate_core
-from aisimulate_core.data.op_publish import SOURCE_MAP_PATH, audit_tree, build_publish_tree
+from aisimulate_core.data.op_schema import SOURCE_MAP_PATH
 
 SYSTEMS = Path(aisimulate_core.__file__).parent / "systems"
 

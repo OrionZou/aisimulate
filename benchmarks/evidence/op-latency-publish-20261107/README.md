@@ -2,7 +2,7 @@
 
 Local build only; nothing was uploaded. Source: packaged op data at commit
 `52d2c6136d781d97c398035601b502e53679daec` (`simonec/unified-data`), builder
-`python/aisimulate/tools/perf_database/publish_op_latency_tree.py build`, audit
+`python/aisimulate/tools/perf_database/publish_op_latency_tree.py build` (converter module `op_latency_publish.py` next to it), audit
 `... audit` (re-reads every source and destination file from disk).
 
 - Source map: `source_map.parquet` (schema `aisim-op-source-map/v1`), one row per source file with source and
@@ -22,9 +22,9 @@ Op tables cannot stay byte-identical: none carried a schema ID and 166 used Snap
 zstd Parquet stamped `aisim-op-latency/v1`. Row hashes show the rows did not change.
 
 Reuse: all 59 `reuse.yaml` declarations resolve to a published donor manifest and table
-(`catalog/op-latency-reuse.parquet`, queried by `aisimulate_core.data.op_reuse.OpReuseCatalog`).
+(`catalog/op-latency-reuse.parquet`).
 
 Size: source 124.1 MB (121.1 MB tables) to 111.0 MB published (`data/op-latency` 110.3 MB incl. 2.3 MB manifests;
 `catalog/` 0.68 MB). 2,239 files in total.
 
-Not covered here: Rust/Python predictor parity on the restamped tables (belongs to the Phase 6 cutover gate).
+Not covered here: Rust/Python predictor parity on the restamped tables (a later gate, not part of this change).

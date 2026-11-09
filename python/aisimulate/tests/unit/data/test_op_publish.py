@@ -4,6 +4,9 @@
 """Op-latency publish tree: faithful conversion, hash audit, resolvable reuse (AISIM-2340)."""
 
 import hashlib
+import importlib.util
+import sys
+from pathlib import Path
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -12,17 +15,32 @@ import yaml
 
 from aisimulate_core.data import check_dataset
 from aisimulate_core.data.loaders import OpLatencyLoader
-from aisimulate_core.data.op_publish import (
+from aisimulate_core.data.op_schema import (
+    DATA_PREFIX,
+    DECLARED_REUSE_PATH,
+    OP_DECLARED_REUSE_SCHEMA_ID,
+    OP_QUERY_VERSIONS_SCHEMA_ID,
+    OP_REUSE_MANIFEST_SCHEMA_ID,
     OP_TABLE_SCHEMA_ID,
-    PublishError,
-    audit_tree,
-    build_publish_tree,
+    QUERY_VERSIONS_NAME,
+    REUSE_MANIFEST_NAME,
+    OpDeclaredReuseRow,
+    OpQueryVersionsRow,
+    OpReuseManifestRow,
+    OpSourceMapRow,
     table_content_sha256,
 )
-from aisimulate_core.data.op_reuse import OpReuseCatalog
-from aisimulate_core.data.parquet import read_parquet_schema_id
+from aisimulate_core.data.parquet import read_parquet, read_parquet_schema_id
 
 pytestmark = pytest.mark.unit
+
+# The converter is a tool script (tools/perf_database), not library code; load it by path.
+_TOOL = Path(__file__).resolve().parents[3] / "tools" / "perf_database" / "op_latency_publish.py"
+_spec = importlib.util.spec_from_file_location("op_latency_publish", _TOOL)
+op = importlib.util.module_from_spec(_spec)
+sys.modules[_spec.name] = op  # dataclasses resolve annotations through sys.modules
+_spec.loader.exec_module(op)
+PublishError, audit_tree, build_publish_tree = op.PublishError, op.audit_tree, op.build_publish_tree
 
 REUSE_MANIFEST = """# header comment
 groups:
@@ -142,15 +160,17 @@ def test_yaml_metadata_round_trips_to_source_bytes(tree, tmp_path):
 def test_reuse_resolvable_from_catalog_files_only(tree, tmp_path):
     out = tmp_path / "out"
     _build(tree, out)
-    reuse = OpReuseCatalog(out)
-    (row,) = reuse.declared("h200_sxm", "vllm", "2.0", table="gemm_perf")
+    rows = read_parquet(out / DECLARED_REUSE_PATH, OP_DECLARED_REUSE_SCHEMA_ID).to_pylist()
+    (row,) = (r for r in rows if r["version"] == "2.0" and r["table"] == "gemm_perf")
     assert row["status"] == "resolved"
     assert row["donor_table_path"] == "data/op-latency/h200_sxm/gemm/vllm/1.0/gemm_perf.parquet"
     assert row["donor_manifest"] == "data/op-latency/h200_sxm/gemm/vllm/1.0/manifest.json"
-    assert [r["table"] for r in reuse.unresolved()] == ["ghost_perf"]
-    assert [g["kernel_source"] for g in reuse.kernel_groups("gemm_perf.parquet")] == ["torch_flow"]
-    assert reuse.version_slots("h200_sxm", "vllm") == {"current": "2.0", "previous": "1.0"}
-    assert reuse.version_slots("b200_sxm", "vllm") == {"current": "1.0", "previous": None}
+    assert [r["table"] for r in rows if r["status"] != "resolved"] == ["ghost_perf"]
+    groups = read_parquet(out / DATA_PREFIX / f"{REUSE_MANIFEST_NAME}.parquet", OP_REUSE_MANIFEST_SCHEMA_ID)
+    assert [g["kernel_source"] for g in groups.to_pylist() if g["op_file"] == "gemm_perf.parquet"] == ["torch_flow"]
+    slots = read_parquet(out / DATA_PREFIX / f"{QUERY_VERSIONS_NAME}.parquet", OP_QUERY_VERSIONS_SCHEMA_ID)
+    override = [r for r in slots.to_pylist() if r["scope"] == "overrides" and r["system"] == "h200_sxm"]
+    assert [(r["current"], r["previous"]) for r in override] == [("2.0", "1.0")]
 
 
 def test_loader_materializes_published_tree(tree, tmp_path):
@@ -196,8 +216,6 @@ def test_build_refuses_existing_or_nested_output(tree, tmp_path):
 
 
 def test_row_models_match_table_columns():
-    from aisimulate_core.data import op_publish as op
-
     doc = {
         "groups": [
             {
@@ -211,8 +229,8 @@ def test_row_models_match_table_columns():
             }
         ]
     }
-    assert set(op.reuse_manifest_table(doc).column_names) == set(op.OpReuseManifestRow.model_fields)
+    assert set(op.reuse_manifest_table(doc).column_names) == set(OpReuseManifestRow.model_fields)
     qv = {"schema_version": 1, "defaults": {"x": {"current": "1"}}, "overrides": {}}
-    assert set(op.query_versions_table(qv).column_names) == set(op.OpQueryVersionsRow.model_fields)
-    assert set(op._MAP_COLUMNS) == set(op.OpSourceMapRow.model_fields)
-    assert set(op._declared_reuse_table([]).column_names) == set(op.OpDeclaredReuseRow.model_fields)
+    assert set(op.query_versions_table(qv).column_names) == set(OpQueryVersionsRow.model_fields)
+    assert set(op._MAP_COLUMNS) == set(OpSourceMapRow.model_fields)
+    assert set(op._declared_reuse_table([]).column_names) == set(OpDeclaredReuseRow.model_fields)
