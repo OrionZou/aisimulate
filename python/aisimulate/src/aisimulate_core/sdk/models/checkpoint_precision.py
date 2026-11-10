@@ -182,10 +182,10 @@ def checkpoint_precision(raw: dict) -> CheckpointPrecision:
     return checkpoint
 
 
-def _nvfp4_lane(system: str | None, native, weight_only):
+def _nvfp4_lane(system: str | None, systems_path: str | None, native, weight_only):
     # Non-Blackwell systems have no native FP4 tensor cores: NVFP4 runs weight-only, as
     # resolve_nvfp4_for_system does for the global mode. Without a system, keep native NVFP4.
-    return weight_only if system and not is_blackwell_system(system) else native
+    return weight_only if system and not is_blackwell_system(system, systems_path) else native
 
 
 def projection_modes(
@@ -195,6 +195,7 @@ def projection_modes(
     layer_paths: LayerPaths,
     default: common.GEMMQuantMode,
     system: str | None = None,
+    systems_path: str | None = None,
 ) -> dict:
     """``{key: {mode: number of layers}}`` for every modeled GEMM projection of every decoder layer.
 
@@ -211,7 +212,7 @@ def projection_modes(
         # MXFP8 takes the fp8_block lane, as the global mode does (helpers._mixed_precision_algo_gemm_mode).
         "mxfp8": gemm.fp8_block,
         "fp8_block": gemm.fp8_block,
-        "nvfp4": _nvfp4_lane(system, gemm.nvfp4, gemm.nvfp4_wo),
+        "nvfp4": _nvfp4_lane(system, systems_path, gemm.nvfp4, gemm.nvfp4_wo),
         "w4a16_nvfp4": gemm.w4a16_nvfp4,
     }
     unlisted = gemm.bfloat16 if checkpoint.targets_only else default
@@ -239,6 +240,7 @@ def moe_modes(
     default: common.MoEQuantMode,
     system: str | None = None,
     execution_mode: Callable = lambda mode: mode,
+    systems_path: str | None = None,
 ) -> dict:
     """``{mode: number of MoE layers}`` of the routed experts, or ``{}`` when every layer is ``default``.
 
@@ -253,7 +255,7 @@ def moe_modes(
     experts of a layer differently.
     """
     moe = common.MoEQuantMode
-    nvfp4 = _nvfp4_lane(system, moe.nvfp4, moe.nvfp4_wo)
+    nvfp4 = _nvfp4_lane(system, systems_path, moe.nvfp4, moe.nvfp4_wo)
     modes = {
         "fp8": moe.fp8,
         "mxfp8": moe.fp8_block,

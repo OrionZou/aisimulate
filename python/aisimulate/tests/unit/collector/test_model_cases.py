@@ -208,8 +208,9 @@ def test_nvfp4_quant_artifacts_have_exact_moe_profiles_and_lanes(monkeypatch, mo
 )
 def test_w4a16_nvfp4_moe_is_collected_on_vllm_only(monkeypatch, backend, model_path, modes):
     assert "moe" in build_collection_case_plan(backend=backend, model_path=model_path).selected_ops
-    # SGLang and TRT-LLM have no w4a16_nvfp4 MoE path (collector/skips.py).
-    expected = modes | {"w4a16_nvfp4"} if backend == "vllm" else modes
+    # SGLang and TRT-LLM have no w4a16_nvfp4 MoE path, and vLLM times these
+    # W4A16_NVFP4 checkpoints only on that lane (collector/skips.py).
+    expected = {"w4a16_nvfp4"} if backend == "vllm" else modes
     assert _planned_moe_modes(monkeypatch, backend, model_path, 100) == expected
 
 

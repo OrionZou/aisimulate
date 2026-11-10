@@ -96,18 +96,28 @@ class NemotronHModel(BaseModel):
         # shortcut: a checkpoint with W4A16_NVFP4 layers (Nemotron 3.5 Lightning) keeps the global
         # modes, because no packaged table has w4a16_nvfp4 MoE rows. Remove once those tables exist.
         per_layer = "w4a16_nvfp4" not in checkpoint.algos
+        # The system resolves under the caller's systems root (canonical API systems_paths).
+        system, systems_path = model_config.system, model_config.systems_path
         if per_layer and not model_info["gemm_quant_mode_is_explicit"]:
-            model._projection_quant_modes = _projection_modes(
-                raw, pattern, model_config.gemm_quant_mode, model_config.system, checkpoint
+            model._projection_quant_modes = projection_modes(
+                checkpoint,
+                pattern,
+                _LAYER_PROJECTIONS,
+                _LAYER_PATHS,
+                model_config.gemm_quant_mode,
+                system,
+                systems_path=systems_path,
             )
         if per_layer and not model_info["moe_quant_mode_is_explicit"]:
-            model._moe_quant_modes = _moe_modes(
-                raw,
-                pattern,
-                model_config.moe_quant_mode,
-                model_config.system,
+            model._moe_quant_modes = moe_modes(
                 checkpoint,
+                pattern,
+                _EXPERT_MODULES,
+                _LAYER_PATHS,
+                model_config.moe_quant_mode,
+                system,
                 lambda mode: resolve_vllm_moe_execution_mode(mode, backend_name, model_info["architecture"]),
+                systems_path=systems_path,
             )
         model.set_hybrid_config(model_info["extra_params"])
         return model

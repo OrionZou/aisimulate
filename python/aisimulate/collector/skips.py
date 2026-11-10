@@ -118,6 +118,16 @@ SKIPS: list[dict] = [
     # is packaged for this NVFP4 alias, so its cases fail at construction on
     # every run.
     {"backend": "vllm", "op": "moe", "model_name": "RadixArk/Qwen3.8-2.4T-A95B-NVFP4"},
+    # vLLM: Lightning's routed experts are all ModelOpt W4A16_NVFP4, which vLLM
+    # times as its w4a16_nvfp4 lane. The nvfp4 branch requires uniformly NVFP4
+    # experts (vllm/collect_moe.py, _modelopt_mixed_expert_prefix), so these cases
+    # fail at construction on every run.
+    {
+        "backend": "vllm",
+        "op": "moe",
+        "dtype": "nvfp4",
+        "model_name": "nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-NVFP4",
+    },
     # Large-EP MoE (moe_ep): SGLang's collector drives DeepEPMoE with FP8
     # activations on the DeepGEMM runner, so block-scaled FP8 is the one quant
     # mode it times. This keeps the coverage collected before.

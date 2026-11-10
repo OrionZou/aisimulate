@@ -177,6 +177,8 @@ class ModelConfig:
     # Internal system identity used by phase/quantization-specific communication
     # dtype selection.  It travels with ModelConfig through sweep replacements.
     system: str | None = None
+    # Systems root that ``system`` resolves under (canonical API ``systems_paths``); None: ambient roots.
+    systems_path: str | None = field(default=None, kw_only=True)
     # DeepSeek-V4.1 text AR: use the backend-verified bounded decoder replay profile.
     decoder_replay: bool = False
     # Whole-forward database identity only; never changes arithmetic or memory.

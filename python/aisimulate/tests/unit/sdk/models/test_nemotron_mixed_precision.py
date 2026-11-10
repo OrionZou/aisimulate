@@ -522,3 +522,34 @@ def test_config_only_modelopt_mixed_listing_prices_unlisted_layers_bf16(monkeypa
         assert buckets["mamba_in_proj_gemm"] == {FP8: 1, BF16: m_layers - 1}
         assert set(buckets["mamba_out_proj_gemm"]) == set(buckets["qkv_gemm"]) == {BF16}
         assert _experts(model) == pytest.approx({MOE.nvfp4: 1, MOE.bfloat16: e_layers - 1})
+
+
+def test_canonical_api_resolves_nvfp4_lanes_under_the_selected_systems_root(monkeypatch, tmp_path):
+    from aisimulate_core.sdk import ForwardPassPerfModelConfig, RustForwardPassPerfModel, engine
+
+    monkeypatch.setenv("AIC_ALLOW_UNLISTED_VERSIONS", "1")
+    # A Blackwell alias that only the explicit systems root defines.
+    packaged = files("aisimulate_core") / "systems"
+    (tmp_path / "custom_bw.yaml").write_text((packaged / "gb200.yaml").read_text())
+    (tmp_path / "data").mkdir()
+    (tmp_path / "data" / "custom_bw").symlink_to(packaged / "data" / "gb200")
+    built = []
+    monkeypatch.setattr(engine, "get_model", lambda *args: built.append(get_model(*args)) or built[-1])
+    RustForwardPassPerfModel.best_available(
+        ForwardPassPerfModelConfig(
+            model=SUPER,
+            system="custom_bw",
+            systems_paths=(str(tmp_path),),
+            backend="vllm",
+            backend_version="0.30.0",
+            worker_type="decode",
+            tp=1,
+            moe_tp_size=1,
+            moe_ep_size=1,
+            database_mode="SOL",
+            estimation_mode="op_level",
+        )
+    ).close()
+    (model,) = built
+    assert _buckets(model.context_ops)["shared_down_gemm"] == _PUBLISHED[SUPER](NVFP4)["shared_down_gemm"]
+    assert set(_experts(model)) == {MOE.nvfp4}
