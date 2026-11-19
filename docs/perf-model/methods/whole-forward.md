@@ -59,7 +59,7 @@ This is **Option 1**. Select an FPM explicitly so construction cannot choose an
 OP estimator, and leave `speculation` unset and `nextn` at zero:
 
 ```python
-from aisimulate_core.sdk import ForwardPassPerfModelConfig, RustForwardPassPerfModel
+from aisim_core.sdk import ForwardPassPerfModelConfig, RustForwardPassPerfModel
 
 stp_config = ForwardPassPerfModelConfig(
     model="Qwen/Qwen3-0.6B",
@@ -230,7 +230,7 @@ For a reviewed profile and table whose identity matches the values below:
 import json
 from pathlib import Path
 
-from aisimulate_core.sdk import ForwardPassPerfModelConfig, RustForwardPassPerfModel
+from aisim_core.sdk import ForwardPassPerfModelConfig, RustForwardPassPerfModel
 
 sd_config = ForwardPassPerfModelConfig(
     model="Qwen/Qwen3-8B",
@@ -260,13 +260,17 @@ or an OP draft tail would count it again. The paths above are user-supplied
 artifacts, including the table's required metadata sidecar; this example does
 not assert packaged measured-SD coverage for that identity.
 
-Resources must use a linear cache with observed `runtime_memory`. The recorded
-usable KV pool already reflects draft and graph allocations; capacity sizing
-does not subtract them again. Pending or analytically declared memory alone is
+Replay resources require observed `runtime_memory` with a linear or supported
+Mamba align cache. The recorded usable KV pool already reflects draft and graph
+allocations. Capacity sizing does not subtract them again. Pending or analytically declared memory alone is
 insufficient. Grouped caches, generic `speculation` configurations, recorded
 DCP and non-pure-TP topologies remain unsupported on this route. Use `nextn`
 with the exact recorded `execution_profile`; generic speculation cost graphs
 must not be composed with measurements that already include the draft work.
+
+Standalone timing queries also accept `cache_layout: unmodeled` with observed
+`runtime_memory`. This descriptor preserves a native allocation whose behavior
+AIS cannot simulate. Cache sizing and replay reject these profiles.
 
 Supported queries are single-rank `ForwardPassMetrics` (pure prefill, pure
 decode and mixed), prefill static/detailed queries, and replay's prefill and
@@ -313,7 +317,7 @@ Replay need finalized resource evidence.
 Set `estimator_config.fpm_interpolation.fpm_parquet_path` on the canonical configuration to use an external parquet and its required same-stem `.metadata.json` sidecar:
 
 ```python
-from aisimulate_core.sdk import ForwardPassPerfModelConfig, RustForwardPassPerfModel
+from aisim_core.sdk import ForwardPassPerfModelConfig, RustForwardPassPerfModel
 
 config = ForwardPassPerfModelConfig(
     model="Qwen/Qwen3-0.6B",
@@ -407,7 +411,9 @@ their decode work as a separate decode pass. The CLI also saves
 error stops replay; the Python exception retains a `fpm_query_coverage`
 attribute for that failure path. A passing replay coverage status requires completed requests,
 nonempty resolved queries and no unsupported lookup. It is distinct from
-operation/energy evidence, which whole-model FPM does not provide. See
+operation-level evidence and from the [power coverage gate](../power.md):
+supported non-speculative schema-v8 whole-model FPM can provide energy,
+while v6/v7 and fitted estimators remain latency-only. See
 [FPM replay validation](../fpm-self-service/implementation.md#validate-fpm-query-coverage-with-agentx-replay)
 for the stricter whole-corpus completion checks and saved onboarding artifacts.
 
@@ -464,10 +470,51 @@ are rejected before interpolation; the existing execution-identity and real-KV
 requirements still apply. The legacy `dynamo_native_single_sample_v1` contract
 is unchanged.
 
+Schema 8 adds vLLM self-benchmark power measurements while retaining schema 7's
+execution identity. Both the sidecar and every row must declare
+`measurement_policy: dynamo_native_single_sample_power_window_v1`. This policy
+is accepted only with schema 8 and backend `vllm`; missing, null, legacy, or
+unknown row policies are rejected.
+
+| Field | Schema-8 contract |
+|---|---|
+| `measurement_policy` | Required in the sidecar and every row; `dynamo_native_single_sample_power_window_v1` |
+| `power_w` | Required nullable Parquet DOUBLE (float64) column; mean watts per GPU from a separate power window of at least two seconds |
+| `latency_ms` | Single-sample forward latency in milliseconds, preserved independently of the power window |
+
+Every non-null `power_w` must be finite and greater than zero. Null records
+measured latency with unknown power; the Rust loader represents that power as
+NaN rather than inventing a zero-watt measurement. Schema 6 and 7 remain
+latency-only and do not read `power_w`. Fake-KV healing retains the selected
+anchor's power, including unknown power.
+
+FPM forward operators return operation energy in watt-milliseconds from
+schema-8 power and resolved latency. Direct interpolation uses the same
+measured anchors and weights for both values. SOL interpolation uses its
+resolved power, and a prefill latency clamp scales energy. If a selected
+anchor lacks power, the operation returns zero energy as the uncovered-data
+sentinel. For example, a 500 W, 7 ms result carries 3500 W·ms.
+
+In a mixed step, the prefill contributes its own energy. Effective decode
+energy subtracts the KV-floor result when both queries have power and the
+marginal latency is positive. Coverage is tracked per component. The
+detailed ForwardPassMetrics result carries the native component energies.
+The scalar iteration query still returns latency.
+
+Native Replay, SDK, and legacy CLI predictions publish numeric watts at 90%
+coverage or above for supported configurations. Mixed-step watts are
+unqualified until measured validation passes. See the
+[power output contract](../power.md#publication-gate) for publication guards.
+
+The accuracy dataset gate validates the schema-8 policy, row binding, DOUBLE
+column, and power values before admitting a pair. Its Gym worker adapter still
+rejects schema 7 and 8 execution identities as unsupported; artifact validation
+does not establish predictor support or measured serving accuracy.
+
 For a Kimi K3 text profile, an explicit configuration can be:
 
 ```python
-from aisimulate_core.sdk import ForwardPassPerfModelConfig, RustForwardPassPerfModel
+from aisim_core.sdk import ForwardPassPerfModelConfig, RustForwardPassPerfModel
 
 config = ForwardPassPerfModelConfig(
     model="moonshotai/Kimi-K3", system="gb300", backend="vllm",
@@ -506,7 +553,7 @@ the canonical quant-mode fields and `attention_backend`, alongside estimator
 selection and controls. DCP FPM replay requires explicit fixed KV block capacity;
 automatic DCP/hybrid capacity sizing is not implemented. Host offload or P/D
 transfer also requires explicit KV bytes per token with DCP.
-`decode_context` is currently supported by AISimulate's `--stack engine` only.
+`decode_context` is currently supported by AISim's `--stack engine` only.
 Dynamo Replay and Planner do not yet support this field; their configuration
 propagation, cache identity, and dependency version need a downstream update.
 These timing precision/backend overrides are prediction-only; recommendation
